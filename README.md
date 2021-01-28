@@ -1,6 +1,6 @@
 # Basic Python Tutorial
 
-## Instrcutions to use this repository
+## Instructions to use this repository
 
 - Clone the repository to your local system
 - Install Python via Anaconda Distribution
