@@ -3,7 +3,6 @@ import os
 
 import dataiku
 import pandas as pd, numpy as np
-import logging
 
 from dataiku import pandasutils as pdu
 import time
@@ -28,13 +27,11 @@ instructions_1 = Div(text="""Enter a valid Flight Key, Ex Format 01NOV22/BHXAYT/
 instructions_2 = Div(text="""Note: The Flight Key can be found in OWS Dashboard <a href="https://insight.jet2.com/t/ProjectInsight/views/OWS_Daily_Dashboard/OWS_Dashboard" target="_blank">here</a> """, width=600)
 
 
-handle = dataiku.Folder("ows_rules")
-try:
-    rules_dict = handle.read_json("template.json")
-except:
-    rules_dict = handle.read_json("template_backup.json")
+handle = dataiku.Folder("ows_rule")
+with handle.get_download_stream("template.json") as f:
+    rules_dict = json.load(f)
 
-reference_data_ows_api = dataiku.Dataset("ows_reference_data")
+reference_data_ows_api = dataiku.Dataset("reference_data_ows_api")
 reference_data = reference_data_ows_api.get_dataframe()
 reference_data.drop(columns=['BookingDate'], inplace=True)
 
@@ -152,7 +149,7 @@ class DefaultOneWaySurchargeCalculator():
         '0-1'
 
         """
-        months_to_depart_range = str(int(ceil(days_to_depart/30-1)))+'-'+str(int(ceil(days_to_depart/30)))
+        months_to_depart_range = str(int(ceil(days_to_depart/30)))+'-'+str(int(ceil(days_to_depart/30+1)))
 
         return months_to_depart_range
 
@@ -491,18 +488,17 @@ def calculate_surchrge_for_simulated_bookings(booking_test_data, current_flight_
     surcharge_dict = {}
     current_flight_cum_booking = {}
     ibob_flight_cum_booking = {}
-    display_rule_series = pd.Series()
-    
+    display_rule_series = ''
+
     OutboundKeyKey = booking_test_data.get('OutboundKeyKey')
-    
     try:
         reference_series = reference_data[(reference_data.FLIGHTKEY_REV==OutboundKeyKey)].iloc[0]
         error_instruction.text=""
-    except:
+    except IndexError:
         error_instruction.text="Invalid Flight Key"
         error_instruction.style={'color': 'red'}
         return surcharge_dict, current_flight_cum_booking, ibob_flight_cum_booking, display_rule_series
-    
+        
     Direction = reference_series.get("DIRECTION")
     PASSENGER_COUNT=reference_series.get("PASSENGER_COUNT")
     InboundFlightPassengerAvgCount = reference_series.get("InboundFlightPassengerAvgCount")
@@ -548,13 +544,9 @@ def generate_surcharge_trend(reference_data, OutboundKeyKey, load_factor):
     """
     """
     # Load the Rule Book
-    handle = dataiku.Folder("ows_rules")
-    try:
-        with handle.get_download_stream("template.json") as f:
-            rules_dict = json.load(f)
-    except:
-        with handle.get_download_stream("template_backup.json") as f:
-            rules_dict = json.load(f)
+    handle = dataiku.Folder("ows_rule")
+    with handle.get_download_stream("template.json") as f:
+        rules_dict = json.load(f)
 
     booking_test_data = prepare_booking_test_data(OutboundKeyKey)
 
@@ -617,7 +609,7 @@ table_1_title = Div(text="Rules Table")
 hover = HoverTool(
         tooltips=[
             ("Booking Date : ", "$x{%F}"),
-            ("Supplement : ", "$y")
+            ("Surcharge : ", "$y")
         ], formatters={'$x': 'datetime'},
     )
 
@@ -625,13 +617,13 @@ plot = figure(plot_height=500, plot_width=500,
               x_axis_type='datetime', title="Supplement Trend",
               tools=["crosshair,pan,reset,save,wheel_zoom",hover])
 plot.xaxis.axis_label = 'Booking Date'
-plot.yaxis.axis_label = 'Supplement (GBP)'
+plot.yaxis.axis_label = 'Surcharge (GBP)'
 plot.line('x', 'y', source=source, line_width=3, line_alpha=0.6)
 
 # Set up callbacks
 def update_surcharge_trend(attrname, old, new):
     # Get the current Input box values
-    OutboundKeyKey = OutboundKeyKey_w.value
+    OutboundKeyKey = str(OutboundKeyKey_w.value)
     #load_factor = float(load_factor_w.value)
     load_factor = 0.9
 
@@ -669,17 +661,14 @@ def update_surcharge_trend(attrname, old, new):
 #for w in [OutboundKeyKey_w, load_factor_w]:
 #    w.on_change('value', update_surcharge_trend)
 OutboundKeyKey_w.on_change('value', update_surcharge_trend)
-#load_factor_w.on_change('value', update_surcharge_trend)
-
 # Set up layouts and add to document
 #inputs = widgetbox(OutboundKeyKey_w, load_factor_w)
 inputs = widgetbox(OutboundKeyKey_w)
-
 # Definition of the rules
 
 def_0 = Div(text="""<b>Definitions of the Rules:</b>""", width=600)
 def_1 = Div(text="""1. <b>Default Rule</b> - (Table A) This rule calculates the difference between booking date and
-                    departure date, higher the difference higher will be supplement""", width=600)
+                    departure date, higher the difference higher will be Surcharge""", width=600)
 def_2 = Div(text="""2. <b>Departure Month Rule</b> - (Table G) Outbound flights from February to August will have a fixed
                     contribution from this rule towards surcharge (say 2.5% of Airline Fare).
                     Similarly for Inbound Flights from September to January will have fixed contribution.
